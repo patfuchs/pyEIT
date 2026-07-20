@@ -364,6 +364,10 @@ def create(
         if n_dim == 2:
             if fd == shape.thorax:
                 p_fix = shape.thorax_pfix
+                if n_el==32:
+                    p_fix= np.load("/thorax_pfix/pfix32_electrodes.npy")
+                elif n_el==64:
+                    p_fix = np.load("/thorax_pfix/pfix64_electrodes.npy")
             elif fd == shape.head_symm:
                 p_fix = shape.head_symm_pfix
             elif fd == shape.lshape:
