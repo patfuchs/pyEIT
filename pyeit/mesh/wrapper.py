@@ -315,6 +315,7 @@ def create(
     h0: float = 0.1,
     p_fix: Optional[np.ndarray] = None,
     bbox: Optional[np.ndarray] = None,
+    shift: int=0
 ) -> PyEITMesh:
     """
     Generating 2D/3D meshes using distmesh (pyEIT built-in)
@@ -333,6 +334,8 @@ def create(
         bounding box
     h0: float
         initial mesh size, default=0.1
+    shift: int
+        shifts the electrode numbering by shift electrodes, to create rotated electrode setups
 
     Returns
     -------
@@ -370,6 +373,10 @@ def create(
                 p_fix = shape.fix_points_fd(fd, n_el=n_el)
         elif n_dim == 3:
             p_fix = shape.fix_points_ball(n_el=n_el)
+
+    if shift != 0:
+        s= (np.arange(shift, n_el+shift)%n_el)
+        p_fix = p_fix[s]
 
     # 1. build mesh
     p, t = build(fd, fh, pfix=p_fix, bbox=bbox, h0=h0)
