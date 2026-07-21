@@ -147,6 +147,8 @@ def create(
     dist_exc: Union[int, List[int]] = 1,
     step_meas: int = 1,
     parser_meas: Union[str, List[str]] = "std",
+    boundary_meas: str = "external",
+    n_el_ring: int = 16,
 ) -> PyEITProtocol:
     """
     Return an EIT protocol, comprising an excitation and a measuremnet pattern
@@ -166,6 +168,11 @@ def create(
     parser_meas : Union[str, List[str]], optional
         parsing the format of each frame in measurement/file, by default 'std'.
         (see `build_meas_pattern`)
+    boundary_meas : str, optional
+        boundary of measurement pattern, by default 'external'. For internal, the pattern is applied in rings of
+        n_el_electrodes
+    n_el_ring : int, optional
+        number of electrodes for internal boundary measurements, by default 16
 
     Returns
     -------
@@ -186,9 +193,12 @@ def create(
     _ex_mat = [build_exc_pattern_std(n_el, dist) for dist in dist_exc]
     ex_mat = np.vstack(_ex_mat)
 
-    meas_mat, keep_ba = build_meas_pattern_std(ex_mat, n_el, step_meas, parser_meas)
+    if boundary_meas == "internal":
+        meas_mat, keep_ba = build_internal_meas_pattern(ex_mat, n_el, step_meas, n_el_ring=n_el_ring,
+                                                        parser=parser_meas)
+    else:
+        meas_mat, keep_ba = build_meas_pattern_std(ex_mat, n_el, step_meas, parser_meas)
     return PyEITProtocol(ex_mat, meas_mat, keep_ba)
-
 
 def build_meas_pattern_std(
     ex_mat: np.ndarray,
@@ -302,3 +312,66 @@ def build_exc_pattern_std(n_el: int = 16, dist: int = 1) -> np.ndarray:
         convert `ex_mat` to global index using the (global) `el_pos` parameters.
     """
     return np.array([[i, np.mod(i + dist, n_el)] for i in range(n_el)])
+
+
+def build_internal_meas_pattern(ex_mat: np.array, n_el: int = 16, step: int = 1, n_el_ring: int = 16,
+                                parser: Union[str, List[str]] = "std"):
+    """
+       Build the measurement pattern (subtract_row-voltage pairs [N, M]) for all excitations on boundary electrodes.
+       The excitation index (exc_id) are also recorded for computing subtract_row_vectorized and smear_nd.
+       This function builds specially if a boundary-measurement condition== internal, meaning the skip pattern is applied
+       to rings of electrodes internally (e.g. real option in Sciospec EIT device).
+
+       we direct operate on measurements or Jacobian on electrodes,
+       so, we can use LOCAL index in this module, do not require el_pos.
+
+       Notes
+       -----
+       ABMN Model.
+       A: current driving electrode,
+       B: current sink,
+       M, N: boundary electrodes, where v_diff = v_n - v_m.
+
+       Parameters
+       ----------
+       ex_mat : np.ndarray
+           Nx2 array, [positive electrode, negative electrode]. ; shape (n_exc, 2)
+       n_el : int, optional
+           number of total electrodes, by default 16
+       step : int, optional
+           measurement method (two adjacent electrodes are used for measuring), by default 1 (adjacent)
+       parser : Union[str, List[str]], optional
+           parsing the format of each frame in measurement/file, by default 'std'
+           if parser contains 'fmmu', or 'rotate_meas' then data are trimmed,
+           boundary voltage measurements are re-indexed and rotated,
+           start from the positive stimulus electrode start index 'A'.
+           if parser contains 'std', or 'no_rotate_meas' then data are trimmed,
+           the start index (i) of boundary voltage measurements is always 0.
+           if parser contains 'meas_current', the measurements on current carrying
+           electrodes are allowed. Otherwise the measurements on current carrying
+           electrodes are discarded (like 'no_meas_current' option in EIDORS3D).
+        n_el_ring : int, optional
+            number of electrodes per ring in which the skip pattern is applied,
+       Returns
+       -------
+       diff_op: np.ndarray
+           measurements pattern / subtract_row pairs, and the excitation indice;
+           shape (n_meas_tot, 3), for each row, it represents [Ni, Mi, exc_id]
+       keep_ba: np.ndarray
+           (n_meas_tot,) boolean array
+       """
+    diff_op, keep_ba = [], []
+    for exc_id, exc_line in enumerate(ex_mat):
+        a, b = exc_line[0], exc_line[1]
+        m = (np.arange(n_el)) % n_el
+        offset = (m) // n_el_ring
+        n = (m + step) % n_el_ring
+        n = n + n_el_ring * offset
+        idx = exc_id * np.ones(n_el)
+        meas_pattern = np.vstack([n, m, idx]).T
+
+        diff_keep = np.logical_and.reduce((m != a, m != b, n != a, n != b))
+        keep_ba.append(diff_keep)
+        diff_op.append(meas_pattern.astype(int))
+
+    return np.vstack(diff_op), np.array(keep_ba).ravel()
