@@ -64,7 +64,7 @@ class Forward:
             ref=self.mesh.ref_node,
         )
 
-    def solve(self, ex_line: np.ndarray = np.array([0, 1])):
+    def solve(self, ex_line: np.ndarray = np.array([0, 1]), inj_current:float=1.0):
         """
         Calculate and compute the potential distribution (complex-valued)
         corresponding to the permittivity distribution `perm ` for a
@@ -74,7 +74,9 @@ class Forward:
         ----------
         ex_line : np.ndarray, optional
             stimulation/excitation matrix, of shape (2,)
-
+        inj_current : float, optional
+            the injection current in Ampere, used as [inj_current, -1* inj_current], for <0,the injection vector
+            is inverted
         Returns
         -------
         np.ndarray
@@ -87,12 +89,12 @@ class Forward:
         """
         # using natural boundary conditions
         b = np.zeros(self.mesh.n_nodes)
-        b[self.mesh.el_pos[ex_line]] = [1, -1]
+        b[self.mesh.el_pos[ex_line]] = [inj_current, -1*inj_current]
 
         # solve
         return scipy.sparse.linalg.spsolve(self.kg, b)
 
-    def solve_vectorized(self, ex_mat: np.ndarray) -> np.ndarray:
+    def solve_vectorized(self, ex_mat: np.ndarray, inj_current:float=1.0) -> np.ndarray:
         """
         Calculate and compute the potential distribution (complex-valued)
         corresponding to the permittivity distribution `perm ` for a
@@ -102,6 +104,9 @@ class Forward:
         ----------
         ex_line : np.ndarray, optional
             stimulation/excitation matrix, of shape (2,)
+        inj_current : float, optional
+            the injection current in Ampere, used as [inj_current, -1* inj_current], for <0,the injection vector
+            is inverted
 
         Returns
         -------
@@ -116,7 +121,7 @@ class Forward:
 
         # using natural boundary conditions
         b = np.zeros((ex_mat.shape[0], self.mesh.n_nodes))
-        b[np.arange(b.shape[0])[:, None], self.mesh.el_pos[ex_mat]] = [1, -1]
+        b[np.arange(b.shape[0])[:, None], self.mesh.el_pos[ex_mat]] = [inj_current, -1*inj_current]
         result = np.empty((ex_mat.shape[0], self.kg.shape[0]), dtype=complex)
 
         # TODO Need to inspect this deeper
@@ -183,6 +188,7 @@ class EITForward(Forward):
     def solve_eit(
         self,
         perm: Optional[Union[int, float, complex, np.ndarray]] = None,
+        inj_current: float = 1.0,
     ):
         """
         EIT simulation, generate forward v measurements
@@ -193,6 +199,9 @@ class EITForward(Forward):
             permittivity on elements ; shape (n_tri,), by default `None`.
             if perm is `None`, the computation of forward v measurements will be
             based on the permittivity of the mesh, self.mesh.perm
+        inj_current : float, optional
+            the injection current in Ampere, used as [inj_current, -1* inj_current], for <0,the injection vector
+            is inverted
         Returns
         -------
         v: np.ndarray
@@ -203,7 +212,7 @@ class EITForward(Forward):
         # for i, ex_line in enumerate(self.protocol.ex_mat):
         #     f = self.solve(ex_line)
         #     v[i] = subtract_row(f[self.mesh.el_pos], self.protocol.meas_mat[i])
-        f = self.solve_vectorized(self.protocol.ex_mat)
+        f = self.solve_vectorized(self.protocol.ex_mat, inj_current=inj_current)
         v = subtract_row_vectorized(f[:, self.mesh.el_pos], self.protocol.meas_mat)
 
         return v.reshape(-1)
